@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: 'Demo of lambda function template'
+
+#Parameters:
+
+Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      RoleName: demo-lambda-execution-role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: demo-lambda-execution-role-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+              - Effect: Allow
+                Action:
+                  - s3:ListAllMyBuckets
+                  - s3:ListBucket
+                Resource: '*'
+#              - Effect: Allow
+#                Action:
+#                  - dynamodb:*
+#                Resource:
+#                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/dynamo-db-table-*
+#                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/dynamo-db-table-*/index/*
+
+  ## @link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-lambda-function.html#aws-resource-lambda-function-properties
+  DemoLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Code:
+        ZipFile: |
+          const { S3Client, ListBucketsCommand } = require("@aws-sdk/client-s3");
+          const s3 = new S3Client({ region: "us-east-1" }); // replace "us-east-1" with your AWS region
+          
+          exports.handler = async function(event) {
+            const command = new ListBucketsCommand({});
+            const response = await s3.send(command);
+            const { Buckets } = response;
+          
+            console.log('Buckets in region: %o', Buckets)
+          
+            return Buckets;
+          };
+      Role: !GetAtt LambdaExecutionRole.Arn

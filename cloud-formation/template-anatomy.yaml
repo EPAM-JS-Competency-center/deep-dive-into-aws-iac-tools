@@ -1,0 +1,131 @@
+## CloudFormation template anatomy:
+##   @link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/template-anatomy.html
+
+## @link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/format-version-structure.html
+AWSTemplateFormatVersion: '2010-09-09'
+
+## @link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/template-description-structure.html
+Description: 'Demo of template anatomy'
+
+## @link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/transform-section-structure.html
+## Transform reference @link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/transform-reference.html
+## Language extensions transform reference @link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/transform-aws-languageextensions.html
+## Serverless transform reference @link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/transform-aws-serverless.html
+#Transform:
+#  - AWS::LanguageExtensions
+#  - AWS::Serverless-2016-10-31
+#  - MyMacro
+
+## @link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/metadata-section-structure.html
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Environment configuration
+        Parameters:
+          - Environment
+      - Label:
+          default: Bucket configuration
+        Parameters:
+          - BucketName
+    ParameterLabels:
+      Environment:
+        default: Deployment Environment
+      BucketName:
+        default: Bucket Name
+
+## @link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/parameters-section-structure.html
+## Using dynamic references to specify template values @link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/dynamic-references.html
+Parameters:
+  Environment:
+    Type: String
+    Description: Select environment name
+    AllowedValues:
+      - dev
+      - test
+      - qa
+      - perf
+      - uat
+      - stage
+      - prod
+    Default: dev
+  BucketName:
+    Description: (OPTIONAl) Enter S3 bucket name or leave it alone
+    Type: String
+    ConstraintDescription: If provided, It must be a valid and not existing bucket name
+    Default: ''
+
+## @link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/mappings-section-structure.html
+Mappings:
+  BucketSuffixEnvMap:
+    dev:
+      Suffix: develop
+    test:
+      Suffix: testing
+    qa:
+      Suffix: quality-assurance
+    perf:
+      Suffix: performance-testing
+    uat:
+      Suffix: user-acceptance
+    stage:
+      Suffix: staging
+    prod:
+      Suffix: production
+
+## @link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/rules-section-structure.html
+#Rules:
+
+## @link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/conditions-section-structure.html
+## Intrinsic functions reference @link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/intrinsic-function-reference.html
+Conditions:
+  IsProductionEnvironment: !Equals [ !Ref Environment, 'production' ]
+  HasBucketName: !Not [ !Equals [ !Ref BucketName, '' ] ]
+
+## @link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/resources-section-structure.html
+Resources:
+
+  ## S3 bucket
+  ## @link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-s3-bucket.html
+  ## Pseudo parameters reference @link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/pseudo-parameter-reference.html
+  DemoBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+## 1:
+#      BucketName: !If [ HasBucketName, !Join [ '-', [ !Ref BucketName, !FindInMap [ BucketSuffixEnvMap, !Ref Environment, Suffix ] ] ], !Ref AWS::NoValue ]
+## 2:
+#      BucketName: !If
+#        - HasBucketName
+#        - !Join
+#          - '-'
+#          - - !Ref BucketName
+#            - !FindInMap [ BucketSuffixEnvMap, !Ref Environment, Suffix ]
+#        - !Ref AWS::NoValue
+## 3:
+      BucketName:
+        Fn::If:
+          - HasBucketName
+          - Fn::Join:
+            - '-'
+            - - !Ref BucketName
+              - Fn::FindInMap:
+                - BucketSuffixEnvMap
+                - Ref: Environment
+                - Suffix
+          - Ref: AWS::NoValue
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+## @link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/outputs-section-structure.html
+Outputs:
+  Bucket:
+    Description: Demo Bucket name
+    Value: !Ref DemoBucket
+    Condition: HasBucketName
+    Export:
+      Name: !Join [ '-', [ !Ref BucketName, !Ref Environment ] ]
+  BucketArn:
+    Condition: IsProductionEnvironment
+    Description: Demo bucket ARN
+    Value: !GetAtt DemoBucket.Arn

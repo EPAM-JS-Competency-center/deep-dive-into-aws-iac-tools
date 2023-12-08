@@ -1,0 +1,333 @@
+# @see https://github.com/widdix/aws-cf-templates/blob/master/state/rds-postgres.yaml
+
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: PostgreSQL RDS instance
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Environment configuration
+        Parameters:
+          - Environment
+      - Label:
+          default: Network Configuration
+        Parameters:
+          - VpcId
+          - VpcSubnetIds
+          - ApiBackendSecurityGroup
+      - Label:
+          default: RDS Configuration
+        Parameters:
+          - DBInstanceIdentifier
+          - DBName
+          - InstanceType
+          - MasterUsername
+          - MasterUserPassword
+          - BackupRetentionPeriod
+          - PreferredBackupWindow
+          - PreferredMaintenanceWindow
+          - SnapshotOnDelete
+          - AllocatedStorage
+          - AutoMinorVersionUpgrade
+          - TcpPort
+          - MultiAvailabilityZone
+      - Label:
+          default: Route53 configuration
+        Parameters:
+          - PrivateHostedZone
+          - SubdomainName
+
+    ParameterLabels:
+      Environment:
+        default: Deployment Environment
+      DBName:
+        default: Database Name
+      DBInstanceIdentifier:
+        default: Database ID
+      InstanceType:
+        default: Instance Type
+      VpcId:
+        default: VPC ID
+      VpcSubnetIds:
+        default: VPC Private Subnet IDs
+      MasterUsername:
+        default: Master Username
+      MasterUserPassword:
+        default: Master User Password
+#      KmsKeyId:
+#        default: The ARN of the AWS KMS key that's used to encrypt the DB instance
+      BackupRetentionPeriod:
+        default: Backup Retention Period
+      PreferredBackupWindow:
+        default: Preferred Backup Window
+      PreferredMaintenanceWindow:
+        default: Preferred Maintenance Window
+      AllocatedStorage:
+        default: Allocated Storage
+      AutoMinorVersionUpgrade:
+        default: Auto Minor Version Upgrade
+      TcpPort:
+        default: TCP Port
+      MultiAvailabilityZone:
+        default: Multi Availability Zone?
+      SnapshotOnDelete:
+        default: Snapshot On Delete?
+      PrivateHostedZone:
+        default: Private hosted zone
+      SubdomainName:
+        default: Private hosted zone subdomain
+
+Parameters:
+  Environment:
+    Type: String
+    Description: Deployment environment name
+    Default: dev
+
+  VpcId:
+    Description: Select VPC form the available VPCs in your account.
+    Type: AWS::EC2::VPC::Id
+  VpcSubnetIds:
+    Description: A list of private subnet ids to place RDS in.
+    Type: List<AWS::EC2::Subnet::Id>
+
+  ApiBackendSecurityGroup:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: ID of API backend security group
+
+  InstanceType:
+    Description: Select Instance Type. @see https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.DBInstanceClass.html
+    Type: String
+    Default: db.t2.micro
+    ConstraintDescription: Must be a valid EC2 instance type.
+  AllocatedStorage:
+    Default: '20'
+    Description: Enter the size of the database (Gb)
+    Type: Number
+    MinValue: '20'
+    MaxValue: '65536'
+    ConstraintDescription: Must be between 20-65536
+  MultiAvailabilityZone:
+    Description: Do you want to Enable Multi Availability Zones?
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+  TcpPort:
+    Description: Enter RDS Listening TCP Port number.
+    Type: Number
+    Default: '5432'
+
+  DBInstanceIdentifier:
+    Description: Type a name for your DB instance.First character must be a letter.1-60 alphanumeric characters.
+    Type: String
+    Default: example
+  DBName:
+    Description: Database Name
+    Type: String
+    Default: test-db
+    MinLength: '4'
+    MaxLength: '64'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric characters.
+  MasterUsername:
+    Description: Database administration name.
+    Type: String
+    Default: rdsroot
+    MinLength: '1'
+    MaxLength: '16'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric characters.
+  MasterUserPassword:
+#    NoEcho: 'true'
+    Description: Database administration password.
+    Type: AWS::SSM::Parameter::Value<String>
+#    MinLength: '8'
+#    AllowedPattern: "[a-zA-Z0-9!?]*"
+#    ConstraintDescription: Must only contain upper and lowercase letters and numbers
+    ConstraintDescription: Must be a valid string SSM parameter containing password which must only contain upper and lowercase letters and numbers
+
+#  KmsKeyId:
+#    Description: The ARN of the AWS KMS key that's used to encrypt the DB instance
+#    Type: String
+
+  BackupRetentionPeriod:
+    Description: Enter Backup Retention Period in Days.
+    Type: Number
+    Default: '7'
+  PreferredBackupWindow:
+    Description: Enter Preferred Backup Window Time.
+    Type: String
+    Default: 22:00-23:00
+  PreferredMaintenanceWindow:
+    Description: Enter Preferred Maintenance Window Time.
+    Type: String
+    Default: Mon:02:00-Mon:04:00
+  AutoMinorVersionUpgrade:
+    Description: Do you want to allow automatic minor version upgrade?
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+
+  SnapshotOnDelete:
+    Description: Do you want to create a Snapshot on instance delete?
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+
+  PrivateHostedZone:
+    Type: String
+    Description: A private hosted zone (without trailing dot) to use for encapsulating RDS endpoint address
+    Default: 'example.internal'
+  SubdomainName:
+    Type: String
+    Description: A subdomain to use with given private hosted zone
+    Default: 'db'
+
+Mappings:
+  Settings:
+    db.t2.micro:
+      Engine: postgres
+      Version: '12.15'
+    db.t3.micro:
+      Engine: postgres
+      Version: '15.3'
+    db.t3.large:
+      Engine: postgres
+      Version: '15.3'
+    db.t3.xlarge:
+      Engine: postgres
+      Version: '15.3'
+
+Conditions:
+  ConfigureSnapshotOnDelete: !Equals [ !Ref SnapshotOnDelete, 'true' ]
+  IsProductionEnvironment: !Equals [ !Ref Environment, 'production' ]
+  IsEncryptionNeeded: !Not [ !Equals [ !Ref InstanceType, 'db.t2.micro' ] ]
+  HasSubdomainName: !Not [ !Equals [ !Ref SubdomainName, '' ] ]
+  HasPrivateHostedZone: !Not [ !Equals [ !Ref PrivateHostedZone, '' ] ]
+
+Resources:
+  RDSAccessSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: RDS Access security group
+      VpcId: !Ref VpcId
+      Tags:
+        - Key: StackName
+          Value: !Ref AWS::StackName
+        - Key: Environment
+          Value: !Ref Environment
+
+  AccessSecurityGroupIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    DependsOn: RDSAccessSecurityGroup
+    Properties:
+      GroupId: !Ref RDSAccessSecurityGroup
+      IpProtocol: tcp
+      FromPort: !Ref TcpPort
+      ToPort: !Ref TcpPort
+      SourceSecurityGroupId: !Ref RDSAccessSecurityGroup
+  ApiBackendSecurityGroupIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    DependsOn: RDSAccessSecurityGroup
+    Properties:
+      GroupId: !Ref RDSAccessSecurityGroup
+      IpProtocol: tcp
+      FromPort: !Ref TcpPort
+      ToPort: !Ref TcpPort
+      SourceSecurityGroupId: !Ref ApiBackendSecurityGroup
+
+  DbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: !Join [ '', [ 'RDS Subnet Group for ', !Ref AWS::StackName ] ]
+      SubnetIds: !Ref VpcSubnetIds
+      Tags:
+        - Key: StackName
+          Value: !Ref AWS::StackName
+        - Key: Environment
+          Value: !Ref Environment
+
+  DbInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    DependsOn:
+      - DbSubnetGroup
+      - RDSAccessSecurityGroup
+    Properties:
+      AllocatedStorage: !Ref AllocatedStorage
+      AllowMajorVersionUpgrade: 'false'
+      AutoMinorVersionUpgrade: !Ref AutoMinorVersionUpgrade
+      BackupRetentionPeriod: !Ref BackupRetentionPeriod
+      DBInstanceClass: !Ref InstanceType
+      DBInstanceIdentifier: !Ref DBInstanceIdentifier
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      Engine:
+        Fn::FindInMap:
+          - Settings
+          - !Ref InstanceType
+          - Engine
+      EngineVersion:
+        Fn::FindInMap:
+          - Settings
+          - !Ref InstanceType
+          - Version
+      DBName: !Ref DBName
+      MasterUsername: !Ref MasterUsername
+      MasterUserPassword: !Ref MasterUserPassword
+#      KmsKeyId: !Ref KmsKeyId
+      MultiAZ: !Ref MultiAvailabilityZone
+      Port: !Ref TcpPort
+      PreferredBackupWindow: !Ref PreferredBackupWindow
+      PreferredMaintenanceWindow: !Ref PreferredMaintenanceWindow
+      PubliclyAccessible: 'false'
+      StorageEncrypted: !If [ IsEncryptionNeeded, 'True', 'false' ]
+      StorageType: gp2
+      VPCSecurityGroups:
+        - !Ref RDSAccessSecurityGroup
+      Tags:
+        - Key: StackName
+          Value: !Ref AWS::StackName
+        - Key: Environment
+          Value: !Ref Environment
+
+  ## SSM parameter
+  RdsEndpointAddressSsmParameter:
+    Type: AWS::SSM::Parameter
+    DependsOn: DbInstance
+    Description: SSM Parameter with RDS endpoint address
+    Properties:
+      Name: !Join [ "/", [ "", !Ref Environment, "example", "api", "rds", "postgresql", "endpoint" ] ]
+      Type: String
+      Value: !GetAtt DbInstance.Endpoint.Address
+
+  ## Route53 record
+  RdsEndpointPrivateRoute53Record:
+    Type: AWS::Route53::RecordSet
+    DependsOn: DbInstance
+    Condition: HasPrivateHostedZone
+    Description: Internal hosted zone CNAME record pointing to RDS endpoint address
+    Properties:
+      HostedZoneName: !Join [ '.', [ !Ref PrivateHostedZone, '' ] ]
+      Name: !If
+        - HasSubdomainName
+        - !Join [ '.', [ !Ref SubdomainName, !Ref PrivateHostedZone, '' ] ]
+        - !Join [ '.', [ !Ref PrivateHostedZone, '' ] ]
+      Type: CNAME
+      TTL: 900
+      ResourceRecords:
+        - !GetAtt DbInstance.Endpoint.Address
+
+Outputs:
+  RDSHostname:
+    Description: RDS Hostname
+    Value: !GetAtt DbInstance.Endpoint.Address
+  RDSPort:
+    Description: RDS Port
+    Value: !GetAtt DbInstance.Endpoint.Port

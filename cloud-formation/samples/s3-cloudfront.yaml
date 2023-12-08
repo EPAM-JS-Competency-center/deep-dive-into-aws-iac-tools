@@ -1,0 +1,319 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: CloudFront Redirect to SSL, Custom DomainName, Edge Gzip, S3 origin bucket, Cors, WebAcl, HSTS
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Environment configuration
+        Parameters:
+          - Environment
+          - AppName
+      - Label:
+          default: App S3 bucket configuration
+        Parameters:
+          - S3BucketName
+          - S3CorsAllowedHeaders
+          - S3CorsAllowedMethods
+          - S3CorsAllowedOrigins
+      - Label:
+          default: Configuration for apps CloudFront distribution and route53 alias
+        Parameters:
+          - CertificateArn
+          - HostedZoneResourceUrl
+          - WebACL
+          - HSTSLambdaARN
+          - CachePolicyId
+          - OriginRequestPolicyId
+          - ResponseHeadersPolicyId
+      - Label:
+          defaut: API CloudFront origin configuration
+        Parameters:
+          - ApiOriginUrl
+          - ApiOriginCachePolicyId
+          - ApiOriginRequestPolicyId
+          - ApiOriginResponsePolicyId
+
+Parameters:
+## Env
+  Environment:
+    Description: Environment
+    Type: String
+    Default: 'dev'
+  AppName:
+    Description: Application name to concat with HostedZoneResourceUrl
+    Type: String
+    Default: 'admin'
+## S3
+  S3BucketName:
+    Description: S3 bucket name
+    Type: String
+    Default: ''
+  S3CorsAllowedHeaders:
+    Description: Amazon S3 returns any requested headers that are allowed.
+    Type: CommaDelimitedList
+    Default: '*'
+  S3CorsAllowedMethods:
+    Description: HTTP methods that you allow the origin to run.
+    Type: CommaDelimitedList
+    Default: 'GET'
+  S3CorsAllowedOrigins:
+    Description: One or more origins you want to be able to access the bucket from.
+    Type: CommaDelimitedList
+    Default: '*'
+## Route53
+  CertificateArn:
+    Description: The ARN of a certificate from AWS Certificate Manager (ACM)
+    Type: String
+    Default: ''
+  HostedZoneResourceUrl:
+    AllowedPattern: (([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.){1,}([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9]){1,}
+    Description: 'Must be a valid DNS zone name WITHOUT trailing period'
+    Type: String
+    Default: 'example.com'
+## CloudFront
+  WebACL:
+    Description: Restriction for access to CloudFrond. Empty line allow access from anywhere
+    Type: String
+    Default: ''
+  HSTSLambdaARN:
+    Description: The ARN of the Lambda function. You must specify the ARN of a function version; you can't specify a Lambda alias or $LATEST
+    Type: String
+    Default: ''
+  CachePolicyId:
+    Type: String
+    Description: CloudFront Cache policy Id. Default to CachingOptimised
+    Default: '658327ea-f89d-4fab-a63d-7e88639e58f6'
+  OriginRequestPolicyId:
+    Type: String
+    Description: CloudFront Origin request policy id. Can be set to b689b0a8-53d0-40ab-baf2-68738e2966ac (Managed-AllViewerExceptHostHeader) or other managed or custom value
+    Default: 'b689b0a8-53d0-40ab-baf2-68738e2966ac'
+  ResponseHeadersPolicyId:
+    Type: String
+    Description: CloudFront response header policy Id. Can be set to eaab4381-ed33-4a86-88ca-d9558dc6cd63 (Managed-CORS-with-preflight-and-SecurityHeadersPolicy) or other custom or managed value
+    Default: ''
+## API origin:
+  ApiOriginUrl:
+    Type: String
+    Description: API url without protocol to proxy /api requests to
+    Default: api.example.com
+  ApiOriginCachePolicyId:
+    Type: String
+    Description: API origin caching policy id. By default it is set to Managed-CachingDisabled
+    Default: '4135ea2d-6df8-44a3-9df3-4b5a84be39ad'
+  ApiOriginRequestPolicyId:
+    Type: String
+    Description: OPTIONAL API origin request policy id. By default it is set to Managed-AllViewerExceptHostHeader
+    Default: 'b689b0a8-53d0-40ab-baf2-68738e2966ac'
+  ApiOriginResponsePolicyId:
+    Type: String
+    Description: OPTIONAL API origin request policy id. Can be set to CORS-With-Preflight (5cc3b908-e619-4b99-88e5-2cf7f45965bd) or Managed-CORS-with-preflight-and-SecurityHeadersPolicy (eaab4381-ed33-4a86-88ca-d9558dc6cd63) or other
+    Default: ''
+
+Conditions:
+  HasAppName: !Not [ !Equals [ !Ref AppName, '' ] ]
+  HasS3BucketName: !Not [ !Equals [ !Ref S3BucketName, '' ] ]
+  HasWebACL: !Not [ !Equals [ !Ref WebACL, '' ] ]
+  HasHSTSLambdaARN: !Not [ !Equals [ !Ref HSTSLambdaARN, '' ] ]
+  HasOriginRequestPolicyId: !Not [ !Equals [ !Ref OriginRequestPolicyId, '' ] ]
+  HasResponseHeadersPolicyId: !Not [ !Equals [ !Ref ResponseHeadersPolicyId, '' ] ]
+  HasApiOriginRequestPolicyId: !Not [ !Equals [ !Ref ApiOriginRequestPolicyId, '' ] ]
+  HasApiOriginResponsePolicyId: !Not [ !Equals [ !Ref ApiOriginResponsePolicyId, '' ] ]
+
+Resources:
+  AppBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: 'Delete'
+    Properties:
+      BucketName: !If [ HasS3BucketName, !Ref S3BucketName, !Ref 'AWS::StackName' ]
+#      WebsiteConfiguration:
+#        IndexDocument: index.html
+      AccessControl: Private
+      CorsConfiguration:
+         CorsRules:
+          - AllowedHeaders: !Ref S3CorsAllowedHeaders
+            AllowedMethods: !Ref S3CorsAllowedMethods
+            AllowedOrigins: !Ref S3CorsAllowedOrigins
+
+  OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    DependsOn: AppBucket
+    Properties:
+      OriginAccessControlConfig:
+        Description: Allows CloudFront distribution to access files from S3
+        Name: !Join [ '-', [ 'CloudFrontWebOAC', !Ref 'AWS::StackName' ] ]
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  AppBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref AppBucket
+      PolicyDocument:
+        Id: WebAppBucketPolicy
+        Version: 2012-10-17
+        Statement:
+          - Sid: 'AllowAccessFromCloudFrontDistribution'
+            Effect: Allow
+            Action:
+              - 's3:GetObject'
+              - 's3:ListBucket'
+            Resource:
+              - !Join [ '', [ 'arn:aws:s3:::', !Ref 'AppBucket', /* ] ]
+              - !Join [ '', [ 'arn:aws:s3:::', !Ref 'AppBucket' ] ]
+            Principal:
+              Service: 'cloudfront.amazonaws.com'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Join
+                  - ':'
+                  - - 'arn:aws:cloudfront:'
+                    - !Ref 'AWS::AccountId'
+                    - !Sub distribution/${CloudFrontWebDistribution}
+
+  CloudFrontWebDistribution:
+    Type: AWS::CloudFront::Distribution
+    DependsOn: AppBucket
+    Properties:
+      DistributionConfig:
+        WebACLId: !If [ HasWebACL, !Ref WebACL, !Ref 'AWS::NoValue' ]
+        Enabled: true
+        IPV6Enabled: true
+        HttpVersion: http2and3
+        DefaultRootObject: index.html
+        Comment: !Join [ '', [ !If [ HasAppName, !Ref AppName, !Ref 'AWS::StackName' ], ' app CloudFront distribution for ', !Ref Environment, ' environment' ] ]
+        Aliases:
+          - !If
+              - HasAppName
+              - !Join [ '.', [ !Ref AppName, !Ref HostedZoneResourceUrl ] ]
+              - !Ref HostedZoneResourceUrl
+        ViewerCertificate:
+          AcmCertificateArn: !Ref CertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+        Origins:
+          - DomainName: !Sub ${AppBucket}.s3.${AWS::Region}.amazonaws.com
+            Id: myS3Origin
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+            OriginAccessControlId: !GetAtt OriginAccessControl.Id
+          - DomainName: !Ref ApiOriginUrl
+            Id: !Ref ApiOriginUrl
+            CustomOriginConfig:
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols:
+                - TLSv1.2
+        CacheBehaviors:
+          - PathPattern: admin/*
+            AllowedMethods: [ 'GET', 'HEAD', 'OPTIONS', 'PUT', 'POST', 'PATCH', 'DELETE' ]
+            CachedMethods: [ 'GET', 'HEAD' ]
+            TargetOriginId: !Ref ApiOriginUrl
+            CachePolicyId: !Ref ApiOriginCachePolicyId
+            OriginRequestPolicyId: !If [ HasApiOriginRequestPolicyId, !Ref ApiOriginRequestPolicyId, !Ref AWS::NoValue ]
+            OriginResponsePolicyId: !If [ HasApiOriginResponsePolicyId, !Ref ApiOriginResponsePolicyId, !Ref AWS::NoValue ]
+            ViewerProtocolPolicy: redirect-to-https
+#            FunctionAssociations:
+#              - EventType: viewer-request
+#                FunctionARN: !GetAtt Function.FunctionMetadata.FunctionARN
+        DefaultCacheBehavior:
+          AllowedMethods: [ 'GET', 'HEAD', 'OPTIONS' ]
+          CachedMethods: [ 'GET', 'HEAD', 'OPTIONS' ]
+          CachePolicyId: !Ref CachePolicyId
+          OriginRequestPolicyId: !If [ HasOriginRequestPolicyId ,!Ref OriginRequestPolicyId, !Ref AWS::NoValue ]
+          ResponseHeadersPolicyId: !If [ HasResponseHeadersPolicyId, !Ref ResponseHeadersPolicyId, !Ref AWS::NoValue ]
+          TargetOriginId: myS3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          Compress: true
+          DefaultTTL: 0
+          LambdaFunctionAssociations:
+            !If
+            - HasHSTSLambdaARN
+            - - EventType: 'origin-response'
+                LambdaFunctionARN: !Ref HSTSLambdaARN
+                IncludeBody: false
+            - [ ]
+        CustomErrorResponses:
+          - ErrorCode: 404
+            ResponsePagePath: /index.html
+            ResponseCode: 200
+            ErrorCachingMinTTL: 300
+          - ErrorCode: 400
+            ErrorCachingMinTTL: 0
+          - ErrorCode: 403
+            ErrorCachingMinTTL: 1
+          - ErrorCode: 500
+            ErrorCachingMinTTL: 5
+
+#  Function:
+#    Type: AWS::CloudFront::Function
+#    Properties:
+#      AutoPublish: true
+#      Name: !Sub ${AWS::StackName}-rewriteDefaultIndex
+#      FunctionCode: >
+#        function handler(event) {
+#          var request = event.request;
+#          var uri = request.uri;
+#
+#          // if (uri === '/') {
+#            // request.uri += 'docs/intro/index.html';
+#            // return request;
+#          // }
+#
+#          if (uri.endsWith('/')) {
+#            request.uri += 'index.html';
+#          }
+#
+#          if (uri.includes('/docs/') && !uri.includes('index.html')) {
+#            request.uri += '/index.html';
+#          }
+#
+#          return request;
+#        }
+#      FunctionConfig:
+#        Comment: 'Append index.html to URL path'
+#        Runtime: cloudfront-js-1.0
+
+  Route53Alias:
+    Type: AWS::Route53::RecordSet
+    DependsOn: CloudFrontWebDistribution
+    Properties:
+      HostedZoneName: !Join [ '', [ !Ref HostedZoneResourceUrl, '.' ] ]
+      Name: !If
+        - HasAppName
+        - !Join [ '', [ !Ref AppName, '.', !Ref HostedZoneResourceUrl, '.' ] ]
+        - !Join [ '', [ !Ref HostedZoneResourceUrl, '.' ] ]
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt CloudFrontWebDistribution.DomainName
+        EvaluateTargetHealth: false
+        HostedZoneId: 'Z2FDTNDATAQYW2'
+
+  AppBucketNameSsmParameter:
+    Type: AWS::SSM::Parameter
+    Description: SSM parameter to keep deployment bucket name
+    Properties:
+      Name: !Join [ "/", [ "", !Ref Environment, "example", "s3", "bucket", !Ref AWS::StackName ] ]
+      Type: String
+      Value: !Ref AppBucket
+
+  CloudFrontWebDistributionIdSsmParameter:
+    Type: AWS::SSM::Parameter
+    Description: SSM parameter to keep CloudFront Web distribution id
+    Properties:
+      Name: !Join [ "/", [ "", !Ref Environment, "example", "distribution", "id", !Ref AWS::StackName ] ]
+      Type: String
+      Value: !Ref CloudFrontWebDistribution
+
+Outputs:
+  CloudFront:
+    Description: CloudFront ID
+    Value: !Ref CloudFrontWebDistribution
+  S3Bucket:
+    Description: S3 Bucket name
+    Value: !Ref AppBucket
+  Environment:
+    Description: Environment name
+    Value: !Ref Environment

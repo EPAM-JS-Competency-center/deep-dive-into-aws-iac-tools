@@ -1,0 +1,68 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: 'Demo of lambda function template'
+
+Transform: 'AWS::Serverless-2016-10-31'
+
+Parameters:
+  Environment:
+    Type: String
+    Description: Select environment name
+    AllowedValues:
+      - dev
+      - test
+      - qa
+      - perf
+      - uat
+      - stage
+      - prod
+    Default: dev
+
+Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      RoleName: demo-lambda-execution-role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: demo-lambda-execution-role-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+              - Effect: Allow
+                Action:
+                  - s3:ListAllMyBuckets
+                  - s3:ListBucket
+                Resource: '*'
+#              - Effect: Allow
+#                Action:
+#                  - dynamodb:*
+#                Resource:
+#                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/dynamo-db-table-*
+#                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/dynamo-db-table-*/index/*
+
+  ## @link: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-function.html
+  DemoLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: nodejs18.x
+      CodeUri: src
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          NODE_ENV: !Ref Environment

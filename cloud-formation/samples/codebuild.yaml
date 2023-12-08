@@ -1,0 +1,218 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: CF template placeholder for CodeBuild projects
+
+Parameters:
+  CodeBuildProjectName:
+    Type: String
+    Description: OPTIONAL CodeBuild project name
+    Default: ''
+  Environment:
+    Type: String
+    Description: CodeBuild environment name
+    Default: 'dev'
+  CodeBuildServiceRoleArn:
+    Type: String
+    Description: CodeBuild service role ARN
+    Default: arn:aws:iam::account-id:role/CodeBuildRole
+  PermissionBoundary:
+    Type: String
+    Description: ARN of permission boundary to set for service role
+    Default: ''
+
+Conditions:
+  HasCodeBuildProjectName: !Not [ !Equals [ !Ref CodeBuildProjectName, '' ] ]
+  HasCodeBuildServiceRoleArn: !Not [ !Equals [ !Ref CodeBuildServiceRoleArn, '' ] ]
+  HasEmptyCodeBuildServiceRoleArn: !Equals [ !Ref CodeBuildServiceRoleArn, '' ]
+  IsProductionEnvironment: !Equals [ !Ref Environment, 'production' ]
+  HasPermissionBoundary: !Not [ !Equals [ !Ref PermissionBoundary, '' ] ]
+
+Resources:
+  CodeBuildProjectServiceRole:
+    Condition: HasEmptyCodeBuildServiceRoleArn
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - 'codebuild.amazonaws.com'
+            Action:
+              - 'sts:AssumeRole'
+      PermissionsBoundary: !If [ HasPermissionBoundary, !Ref PermissionBoundary, !Ref AWS::NoValue ]
+    #        ManagedPolicyArns:
+    #          - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+
+  CodeBuildProjectServiceRoleBasePolicy:
+    Condition: HasEmptyCodeBuildServiceRoleArn
+    DependsOn: CodeBuildProjectServiceRole
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !If
+        - HasCodeBuildProjectName
+        - !Join [ '-', [ 'CodeBuild', !Ref CodeBuildProjectName, 'service-role', 'base', 'policy' ] ]
+        - !Join [ '-', [ 'CodeBuild', !Ref AWS::StackName, !Ref Environment, 'service-role', 'base', 'policy' ] ]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Resource:
+              - !Join [
+                '/',
+                [
+                  !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:',
+                  'aws',
+                  'codebuild',
+                  !If [ HasCodeBuildProjectName, !Ref CodeBuildProjectName, !Join [ '-', [ !Ref AWS::StackName, !Ref Environment ] ] ]
+                ]
+              ]
+#              - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/BuildEcrImage:*'
+              - !Join [
+                '',
+                [
+                  !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/',
+                  'aws/',
+                  'codebuild/',
+                  !If [ HasCodeBuildProjectName, !Join [ ':', [ !Ref CodeBuildProjectName, '*' ] ], !Join [ ':',  [ !Join [ '-', [ !Ref AWS::StackName, !Ref Environment ] ], "*" ] ] ]
+                ]
+              ]
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+          - Effect: Allow
+            Resource:
+              - !Sub 'arn:aws:s3:::codepipeline-${AWS::Region}-*'
+            Action:
+              - s3:PutObject
+              - s3:GetObject
+              - s3:GetObjectVersion
+              - s3:GetBucketAcl
+              - s3:GetBucketLocation
+          - Effect: Allow
+            Action:
+              - codebuild:CreateReportGroup
+              - codebuild:CreateReport
+              - codebuild:UpdateReport
+              - codebuild:BatchPutTestCases
+              - codebuild:BatchPutCodeCoverages
+            Resource:
+#              - !Sub 'arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:report-group/BuildEcrImage-*'
+              - !Join [
+                '',
+                [
+                  !Sub 'arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:report-group:/',
+                  !If [ HasCodeBuildProjectName, !Join [ '-', [ !Ref CodeBuildProjectName, '*' ] ], !Join [ '-',  [ !Join [ '-', [ !Ref AWS::StackName, !Ref Environment ] ], "*" ] ] ]
+                ]
+              ]
+      Roles:
+        - !Ref CodeBuildProjectServiceRole
+
+#  CodeBuildProjectServiceRolePolicy:
+#    Condition: HasEmptyCodeBuildServiceRoleArn
+#    DependsOn: CodeBuildProjectServiceRole
+#    Type: AWS::IAM::Policy
+#    Properties:
+#      PolicyName: !If
+#        - HasCodeBuildProjectName
+#        - !Join [ '-', [ 'CodeBuild', !Ref CodeBuildProjectName, 'service-role', 'policy' ] ]
+#        - !Join [ '-', [ 'CodeBuild', !Ref AWS::StackName, !Ref Environment, 'service-role', 'policy' ] ]
+#      PolicyDocument:
+#        Version: '2012-10-17'
+#        Statement:
+##          Permissions for pushing docker images to repository
+##          - Effect: 'Allow'
+##            Action:
+##              - ecr:BatchCheckLayerAvailability
+##              - ecr:GetDownloadUrlForLayer
+##              - ecr:BatchGetImage
+##              - ecr:PutLifecyclePolicy
+##              - ecr:UntagResource
+##              - ecr:CompleteLayerUpload
+##              - ecr:TagResource
+##              - ecr:UploadLayerPart
+##              - ecr:InitiateLayerUpload
+##              - ecr:DeleteLifecyclePolicy
+##              - ecr:ReplicateImage
+##              - ecr:GetRepositoryPolicy
+##              - ecr:PutImage
+##              - ecr:GetRegistryPolicy
+##              - ecr:BatchImportUpstreamImage
+##              - ecr:DescribeRegistry
+##              - ecr:GetAuthorizationToken
+##            Resource:
+##              - !Join [ '/', [ !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository', 'mentor-ai-bot-*' ] ]
+##              - !Join [ '/', [ !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository', 'mentor-ai-ms-bot-*' ] ]
+##          Permissions for pulling base docker images
+##          - Effect: 'Allow'
+##            Action:
+##              - ecr:GetDownloadUrlForLayer
+##              - ecr:BatchGetImage
+##            Resource: !Join [ '/', [ !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository', 'images' ] ]
+##          Permissions for getting SSM parameters
+##          - Effect: 'Allow'
+##            Action:
+##              - ssm:GetParameters
+##              - ssm:GetParameter
+##            Resource:
+##              - !Join [ '/', [ !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:parameter', '*/env/variables' ] ]
+##              - !Join [ '/', [ !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:parameter', '*/env/variables' ] ]
+#      Roles:
+#        - !Ref CodeBuildProjectServiceRole
+
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !If [ HasCodeBuildProjectName, !Ref CodeBuildProjectName, !Join [ '-', [ !Ref AWS::StackName, !Ref Environment ] ] ]
+      Source:
+        Type: CODEPIPELINE
+#        BuildSpec: buildspec/build-image.buildspec.yml
+## or:
+#        BuildSpec: |-
+#          version: 0.2
+#          env:
+#            variables:
+#              NODE_ENV: "production"
+#          phases:
+#            install:
+#              commands:
+#                # Update system packages
+#                - apt-get update -y -q --list-cleanup || true
+#            build:
+#              commands:
+#                - echo Build is started on `date`
+#                - echo Build is finished on `date`
+      Artifacts:
+        Type: CODEPIPELINE
+        Name: BuildArtifact
+      Environment:
+        Type: LINUX_CONTAINER
+        Image: aws/codebuild/standard:7.0
+        ComputeType: BUILD_GENERAL1_SMALL
+        ImagePullCredentialsType: CODEBUILD
+#        PrivilegedMode: true
+        EnvironmentVariables:
+          - Name: ENV_VAR_NAME
+            Type: PLAINTEXT
+            Value: value
+      ServiceRole: !If [ HasCodeBuildServiceRoleArn, !Ref CodeBuildServiceRoleArn, !Ref CodeBuildProjectServiceRole ]
+      TimeoutInMinutes: 60
+      QueuedTimeoutInMinutes: 480
+      Tags: []
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+        S3Logs:
+          Status: DISABLED
+          EncryptionDisabled: false
+
+Outputs:
+  CodeBuildProjectName:
+    Description: CodeBuild project name
+    Value: !Ref CodeBuildProject
+  CodeBuildProjectArn:
+    Description: CodeBuild project ARN
+    Value: !GetAtt CodeBuildProject.Arn

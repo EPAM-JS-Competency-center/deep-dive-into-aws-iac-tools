@@ -1,0 +1,24 @@
+general:
+  auth:
+    us-east-1: personalAccount
+
+project:
+  name: task-cat-demo-project
+  regions:
+    - us-east-1
+  s3_bucket: task-cat-demo-bucket-1q2w3e4r
+
+tests:
+
+  template-anatomy:
+    template: ./template-anatomy.yaml
+    parameters:
+      Environment: test
+#      BucketName: demo-bucket-name
+
+  lambda:
+    template: ./cf-lambdas/lambda.yaml
+
+  sam-lambda:
+    template: ./cf-lambdas/sam-lambda.yaml
+#    template: ./cf-lambdas/packaged-sam-lambda.yaml
